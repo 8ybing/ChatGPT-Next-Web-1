@@ -1,4 +1,4 @@
-import type { ChatRequest, ChatReponse } from "./api/chat/typing";
+import type { ChatRequest, ChatReponse } from "./api/openai/typing";
 import { filterConfig, Message, ModelConfig, useAccessStore } from "./store";
 import Locale from "./locales";
 
@@ -42,19 +42,47 @@ function getHeaders() {
   return headers;
 }
 
+export function requestOpenaiClient(path: string) {
+  return (body: any, method = "POST") =>
+    fetch("/api/openai", {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        path,
+        ...getHeaders(),
+      },
+      body: body && JSON.stringify(body),
+    });
+}
+
 export async function requestChat(messages: Message[]) {
   const req: ChatRequest = makeRequestParam(messages, { filterBot: true });
 
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...getHeaders(),
-    },
-    body: JSON.stringify(req),
-  });
+  const res = await requestOpenaiClient("v1/chat/completions")(req);
 
-  return (await res.json()) as ChatReponse;
+  try {
+    const response = (await res.json()) as ChatReponse;
+    return response;
+  } catch (error) {
+    console.error("[Request Chat] ", error, res.body);
+  }
+}
+
+export async function requestUsage() {
+  const res = await requestOpenaiClient(
+    "dashboard/billing/credit_grants?_vercel_no_cache=1"
+  )(null, "GET");
+
+  try {
+    const response = (await res.json()) as {
+      total_available: number;
+      total_granted: number;
+      total_used: number;
+    };
+    return response;
+  } catch (error) {
+    console.error("[Request usage] ", error, res.body);
+  }
 }
 
 export async function requestChatStream(
@@ -87,6 +115,7 @@ export async function requestChatStream(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        path: "v1/chat/completions",
         ...getHeaders(),
       },
       body: JSON.stringify(req),
@@ -129,7 +158,7 @@ export async function requestChatStream(
       responseText = Locale.Error.Unauthorized;
       finish();
     } else {
-      console.error("Stream Error");
+      console.error("Stream Error", res.body);
       options?.onError(new Error("Stream Error"));
     }
   } catch (err) {
@@ -149,7 +178,7 @@ export async function requestWithPrompt(messages: Message[], prompt: string) {
 
   const res = await requestChat(messages);
 
-  return res.choices.at(0)?.message?.content ?? "";
+  return res?.choices?.at(0)?.message?.content ?? "";
 }
 
 // To store message streaming controller
